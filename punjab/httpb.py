@@ -392,6 +392,7 @@ class Httpb(resource.Resource):
             self.send_http_error(400, request)
             return server.NOT_DONE_YET
         else:
+            session = None
             if self.service.inSession(body_tag):
                 # sid is an existing session
                 if body_tag.getAttribute('rid'):
@@ -401,6 +402,7 @@ class Httpb(resource.Resource):
 
                 s, d = self.service.parseBody(body_tag, xmpp_elements)
                 d.addCallback(self.return_httpb, s, request)
+                session = s
             elif body_tag.hasAttribute('sid'):
                 if self.service.v:
                     log.msg("no sid is found but the body element has a 'sid' attribute")
@@ -411,9 +413,9 @@ class Httpb(resource.Resource):
                 # start session
                 s, d = self.service.startSession(body_tag, xmpp_elements)
                 d.addCallback(self.return_session, s, request)
-
+                session = s
             # Add an error back for returned errors
-            d.addErrback(self.return_error, request)
+            d.addErrback(self.return_error, request, session)
         return server.NOT_DONE_YET
 
 
@@ -473,7 +475,7 @@ class Httpb(resource.Resource):
         self.return_body(request, b, session.charset)
 
 
-    def return_error(self, e, request):
+    def return_error(self, e, request, session):
         echildren = []
         try:
             # TODO - clean this up and make errors better
@@ -498,6 +500,9 @@ class Httpb(resource.Resource):
             else:
                 self.send_http_error(500, request, 'internal-server-error', 'error', e)
         except:
+            if session: # and getattr(session,'xmlstream', None) is not None:
+                log.msg("disconnecting session %s",getattr(session,'sid',None))
+                session.disconnect()
             log.err()
             pass
 
@@ -599,6 +604,7 @@ class HttpbService(punjab.Service):
                 for wr in session.waiting_requests:
                     if time_now - wr.wait_start >= wr.timeout:
                         wr.delayedcall(wr.deferred)
+        # log.msg('_doPollTimeOuts %d BOSH sessions.' % len(self.sessions))
 
 
     def startSession(self, body, xmpp_elements):
